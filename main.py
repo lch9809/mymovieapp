@@ -1,19 +1,28 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 import requests
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 st.set_page_config(page_title="박스오피스 대시보드", layout="wide")
-st.title("🎬 어제의 박스오피스")
+st.title("🎬 박스오피스 대시보드")
 
 # 비밀 금고에서 인증키 꺼내기 (코드에는 키를 적지 않는다)
 KOBIS_KEY = st.secrets["KOBIS_KEY"]
 
-# 한국 시간 기준 어제 날짜를 여덟 자리로 (배포 서버 시계는 외국 기준일 수 있다)
-yesterday = datetime.now(ZoneInfo("Asia/Seoul")) - timedelta(days=1)
-target_dt = yesterday.strftime("%Y%m%d")
-st.caption(f"조회 기준일(어제): {yesterday.strftime('%Y-%m-%d')}")
+# 한국 시간 기준 '오늘'과 '어제' (배포 서버 시계는 외국 기준일 수 있다)
+now_kst = datetime.now(ZoneInfo("Asia/Seoul"))
+yesterday_date = (now_kst - timedelta(days=1)).date()
+
+# 달력에서 날짜 고르기 (가장 늦은 날짜는 어제까지)
+selected_date = st.date_input(
+    "조회할 날짜를 선택하세요",
+    value=yesterday_date,
+    max_value=yesterday_date,
+)
+target_dt = selected_date.strftime("%Y%m%d")
+st.caption(f"조회 기준일: {selected_date.strftime('%Y-%m-%d')}")
 
 url = "https://www.kobis.or.kr/kobisopenapi/webservice/rest/boxoffice/searchDailyBoxOfficeList.json"
 res = requests.get(url, params={"key": KOBIS_KEY, "targetDt": target_dt}, timeout=10)
@@ -31,7 +40,7 @@ if "faultInfo" in data:
 
 box_list = data.get("boxOfficeResult", {}).get("dailyBoxOfficeList", [])
 if not box_list:
-    st.warning("그날 자료가 없습니다. 날짜를 하루 더 앞으로 옮겨 보세요.")
+    st.warning("그날 자료가 없습니다. 다른 날짜를 골라 보세요.")
     st.stop()
 
 df = pd.DataFrame(box_list)
@@ -40,21 +49,106 @@ df = pd.DataFrame(box_list)
 for col in ["rank", "audiCnt", "audiAcc", "scrnCnt", "showCnt"]:
     df[col] = pd.to_numeric(df[col])
 
+# 누적관객 100만 이상이면 왕관 표시용 이름 만들기
+CROWN_THRESHOLD = 1_000_000
+df["display_name"] = df.apply(
+    lambda r: f"👑 {r['movieNm']}" if r["audiAcc"] >= CROWN_THRESHOLD else r["movieNm"],
+    axis=1,
+)
+
 # 1위 영화 지표 카드 세 장
 top = df.sort_values("rank").iloc[0]
 c1, c2, c3 = st.columns(3)
-c1.metric("어제 1위", top["movieNm"])
-c2.metric("어제 관객수", f"{top['audiCnt']:,}명")
+c1.metric("1위", top["display_name"])
+c2.metric("하루 관객수", f"{top['audiCnt']:,}명")
 c3.metric("누적 관객", f"{top['audiAcc']:,}명")
 
-# 표를 한국어 열 이름으로 정리
-table = df[["rank", "movieNm", "openDt", "audiCnt", "audiAcc", "scrnCnt"]].copy()
-table.columns = ["순위", "영화명", "개봉일", "관객수", "누적관객", "스크린수"]
-table = table.sort_values("순위").reset_index(drop=True)
+st.divider()
 
-st.subheader("📋 박스오피스 TOP 10")
-st.dataframe(table)
+# 그래프용 데이터 (순위순 정렬, 화면에는 관객수 많은 순 = 순위순으로 위에서 아래로)
+chart_df = df.sort_values("rank").head(10).copy()
+chart_df = chart_df.iloc[::-1]  # plotly 가로 막대는 아래부터 그려지므로 뒤집어서 1위가 위로 오게 함
 
-st.subheader("📈 관객수 상위 5편")
-top5 = table.sort_values("관객수", ascending=False).head(5)
-st.bar_chart(top5.set_index("영화명")["관객수"])
+fig = px.bar(
+    chart_df,
+    x="audiCnt",
+    y="display_name",
+    orientation="h",
+    text="audiCnt",
+    color="audiAcc",
+    color_continuous_scale="Sunset",
+    labels={"audiCnt": "하루 관객수", "display_name": "", "audiAcc": "누적 관객"},
+    title="📊 박스오피스 TOP 10 · 하루 관객수",
+)
+fig.update_traces(
+    texttemplate="%{text:,}명",
+    textposition="outside",
+    marker_line_width=0,
+)
+fig.update_layout(
+    height=520,
+    coloraxis_colorbar_title="누적관객",
+    plot_bgcolor="rgba(0,0,0,0)",
+    paper_bgcolor="rgba(0,0,0,0)",
+    font=dict(size=14),
+    margin=dict(l=10, r=40, t=60, b=10),
+    xaxis=dict(showgrid=True, gridcolor="rgba(200,200,200,0.3)"),
+)
+st.plotly_chart(fig, use_container_width=True)
+
+# 누적 관객 비교 그래프
+fig2 = px.bar(
+    chart_df,
+    x="audiAcc",
+    y="display_name",
+    orientation="h",
+    text="audiAcc",
+    color="audiAcc",
+    color_continuous_scale="Sunset",
+    labels={"audiAcc": "누적 관객", "display_name": ""},
+    title="🏆 누적 관객수 비교 (👑 = 100만 명 이상)",
+)
+fig2.update_traces(
+    texttemplate="%{text:,}명",
+    textposition="outside",
+    marker_line_width=0,
+)
+fig2.update_layout(
+    height=520,
+    showlegend=False,
+    coloraxis_showscale=False,
+    plot_bgcolor="rgba(0,0,0,0)",
+    paper_bgcolor="rgba(0,0,0,0)",
+    font=dict(size=14),
+    margin=dict(l=10, r=40, t=60, b=10),
+    xaxis=dict(showgrid=True, gridcolor="rgba(200,200,200,0.3)"),
+)
+st.plotly_chart(fig2, use_container_width=True)
+
+# 스크린수 대비 관객수를 보여주는 버블 차트 (덤으로 하나 더)
+fig3 = px.scatter(
+    chart_df,
+    x="scrnCnt",
+    y="audiCnt",
+    size="audiAcc",
+    color="audiAcc",
+    color_continuous_scale="Sunset",
+    text="display_name",
+    labels={"scrnCnt": "스크린수", "audiCnt": "하루 관객수", "audiAcc": "누적 관객"},
+    title="🎥 스크린수 대비 관객수 (원 크기 = 누적관객)",
+)
+fig3.update_traces(textposition="top center")
+fig3.update_layout(
+    height=480,
+    plot_bgcolor="rgba(0,0,0,0)",
+    paper_bgcolor="rgba(0,0,0,0)",
+    font=dict(size=13),
+    margin=dict(l=10, r=10, t=60, b=10),
+)
+st.plotly_chart(fig3, use_container_width=True)
+
+with st.expander("📋 원본 표로 보기"):
+    table = df[["rank", "display_name", "openDt", "audiCnt", "audiAcc", "scrnCnt"]].copy()
+    table.columns = ["순위", "영화명", "개봉일", "관객수", "누적관객", "스크린수"]
+    table = table.sort_values("순위").reset_index(drop=True)
+    st.dataframe(table, use_container_width=True)
