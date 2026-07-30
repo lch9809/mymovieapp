@@ -125,27 +125,33 @@ fig2.update_layout(
 )
 st.plotly_chart(fig2, use_container_width=True)
 
-# 스크린수 대비 관객수를 보여주는 버블 차트 (덤으로 하나 더)
-fig3 = px.scatter(
-    chart_df,
-    x="scrnCnt",
-    y="audiCnt",
-    size="audiAcc",
-    color="audiAcc",
-    color_continuous_scale="Sunset",
-    text="display_name",
-    labels={"scrnCnt": "스크린수", "audiCnt": "하루 관객수", "audiAcc": "누적 관객"},
-    title="🎥 스크린수 대비 관객수 (원 크기 = 누적관객)",
+# 오늘 극장가를 누가 차지했는지 보여주는 관객점유율 도넛 차트
+share_df = chart_df.copy()
+share_df["점유율"] = share_df["audiCnt"] / share_df["audiCnt"].sum() * 100
+
+fig3 = px.pie(
+    share_df,
+    names="display_name",
+    values="audiCnt",
+    hole=0.55,
+    color_discrete_sequence=px.colors.sequential.Sunset,
+    title="🍩 오늘 극장가를 누가 차지했나 (TOP 10 관객점유율)",
 )
-fig3.update_traces(textposition="top center")
+fig3.update_traces(
+    textposition="outside",
+    textinfo="label+percent",
+    pull=[0.05 if n.startswith("👑") else 0 for n in share_df["display_name"]],
+)
 fig3.update_layout(
-    height=480,
+    height=520,
+    showlegend=False,
     plot_bgcolor="rgba(0,0,0,0)",
     paper_bgcolor="rgba(0,0,0,0)",
     font=dict(size=13),
     margin=dict(l=10, r=10, t=60, b=10),
 )
 st.plotly_chart(fig3, use_container_width=True)
+
 
 with st.expander("📋 원본 표로 보기"):
     table = df[["rank", "display_name", "openDt", "audiCnt", "audiAcc", "scrnCnt"]].copy()
