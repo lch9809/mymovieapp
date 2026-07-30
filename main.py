@@ -56,12 +56,36 @@ df["display_name"] = df.apply(
     axis=1,
 )
 
-# 1위 영화 지표 카드 세 장
-top = df.sort_values("rank").iloc[0]
-c1, c2, c3 = st.columns(3)
-c1.metric("1위", top["display_name"])
-c2.metric("하루 관객수", f"{top['audiCnt']:,}명")
-c3.metric("누적 관객", f"{top['audiAcc']:,}명")
+# 1~3위 카드 (포스터 사진 대신 이모지 아이콘으로 정보 표현)
+MEDALS = ["🥇", "🥈", "🥉"]
+top3 = df.sort_values("rank").head(3)
+
+st.subheader("🏅 오늘의 TOP 3")
+cols = st.columns(3)
+for col, (_, row) in zip(cols, top3.iterrows()):
+    medal = MEDALS[int(row["rank"]) - 1] if 1 <= int(row["rank"]) <= 3 else "🎬"
+    crown = "👑 " if row["audiAcc"] >= CROWN_THRESHOLD else ""
+    with col:
+        with st.container(border=True):
+            st.markdown(
+                f"<div style='text-align:center; font-size:52px; line-height:1.1'>{medal}</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<div style='text-align:center; font-size:18px; font-weight:700; margin-bottom:8px'>{crown}{row['movieNm']}</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"""
+                <div style='font-size:15px; line-height:2.0'>
+                🎟️ 하루 관객수 &nbsp; <b>{row['audiCnt']:,}명</b><br>
+                📈 누적 관객수 &nbsp; <b>{row['audiAcc']:,}명</b><br>
+                🖥️ 상영 스크린 &nbsp; <b>{row['scrnCnt']:,}개</b><br>
+                📅 개봉일 &nbsp; <b>{row['openDt']}</b>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
 st.divider()
 
@@ -138,17 +162,29 @@ fig3 = px.pie(
     title="🍩 오늘 극장가를 누가 차지했나 (TOP 10 관객점유율)",
 )
 fig3.update_traces(
-    textposition="outside",
-    textinfo="label+percent",
+    textposition="inside",
+    insidetextorientation="horizontal",
+    textinfo="percent",
+    textfont=dict(size=13, color="white"),
     pull=[0.05 if n.startswith("👑") else 0 for n in share_df["display_name"]],
 )
 fig3.update_layout(
-    height=520,
-    showlegend=False,
+    height=560,
+    showlegend=True,
+    legend=dict(
+        orientation="h",
+        yanchor="top",
+        y=-0.05,
+        xanchor="center",
+        x=0.5,
+        font=dict(size=12),
+    ),
+    uniformtext_minsize=11,
+    uniformtext_mode="hide",
     plot_bgcolor="rgba(0,0,0,0)",
     paper_bgcolor="rgba(0,0,0,0)",
     font=dict(size=13),
-    margin=dict(l=10, r=10, t=60, b=10),
+    margin=dict(l=20, r=20, t=60, b=100),
 )
 st.plotly_chart(fig3, use_container_width=True)
 
